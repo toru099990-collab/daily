@@ -150,7 +150,7 @@ textarea:focus,input:focus{outline:2px solid #cfe0b8;border-color:transparent}
 .selbar{flex-direction:column;align-items:stretch;gap:8px}
 .selbar .r1,.selbar .r2{display:flex;gap:8px;align-items:center}
 .selbar .r1 span{flex:1}
-.selbar .r2 .sbtn{flex:1;padding:10px 0;font-size:13px}
+.selbar .r2 .sbtn{flex:1;padding:10px 0;font-size:12.5px}
 .selbtn{margin-left:auto;flex:none}
 .grid button,.grid img{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .grid [data-pick-id]{touch-action:pan-y}
@@ -1056,6 +1056,9 @@ function vTrip(id){
     if(!unk&&!man&&!noc)return "";
     if(!unk&&noc)return `<div class="box" style="display:flex;gap:12px;align-items:center;background:#fff4e6"><div style="flex:1;font-size:13px;line-height:1.6"><b>細かい場所がわからない写真が${noc}枚あります</b><br><span style="color:var(--sub)">位置情報が付いていない写真です。「帯広」「ニセコ」のような場所を選ぶと地図に反映されます。日によって違う場所なら「写真を選んで場所を設定」で分けて設定できます。</span></div><button class="sbtn" data-setplace style="flex:none;background:var(--green);color:#fff;border-color:var(--green)">場所を選ぶ</button></div>`;
     return `<div class="box" style="display:flex;gap:12px;align-items:center;background:#fff4e6"><div style="flex:1;font-size:13px;line-height:1.6">${unk?`<b>場所がわからない写真が${unk}枚あります</b><br><span style="color:var(--sub)">位置情報が付いていない写真です。行った場所を選ぶと地図に反映されます。</span>`:`<span style="color:var(--sub)">${man}枚は手動で場所を設定しています。</span>`}</div><button class="sbtn" data-setplace style="flex:none;background:var(--green);color:#fff;border-color:var(--green)">場所を選ぶ</button></div>`;})()}
+  ${(()=>{const g=placeGroups(tr),ks=Object.keys(g).filter(k=>k);if(ks.length<2)return "";
+    ks.sort((a,b)=>g[b].length-g[a].length);
+    return `<div class="box" style="display:flex;gap:12px;align-items:center;background:#eef4e6"><div style="flex:1;font-size:13px;line-height:1.6"><b>この旅に、別々の場所の写真が混ざっています</b><br><span style="color:var(--sub)">${ks.map(k=>`${esc(fullPref(k))} ${g[k].length}枚`).join("・")}</span></div><button class="sbtn" data-splitplace style="flex:none;background:var(--green);color:#fff;border-color:var(--green)">場所ごとに分ける</button></div>`;})()}
   <div class="box"><label class="lbl" for="tmemo">ふたりの思い出メモ</label><textarea id="tmemo" placeholder="この旅のことを書き残しておきましょう">${esc(m.memo||"")}</textarea>
     ${i.geoPs.length?`<div style="margin-top:12px">${routeSVG(days)}</div><div class="legend">${legend}</div>`:""}
     <div class="acts">
@@ -1074,7 +1077,7 @@ const inSel=()=>S.selMode&&S.selMode===selKey();
 function selBtn(){return `<button class="sbtn selbtn" data-seltoggle>${inSel()?"完了":"選択"}</button>`;}
 function selBar(){if(!inSel())return "";const n=S.picked.size;
   return `<div class="selbar"><div class="r1"><span>${n?n+"枚を選択中":"タップ、または指でなぞって選択"}</span><button class="sbtn" data-selall>すべて選択</button><button class="sbtn" data-selcancel>やめる</button></div>
-  <div class="r2"><button class="sbtn" data-selplace ${n?"":"disabled"}>場所を設定</button><button class="sbtn delbtn" data-seldel ${n?"":"disabled"}>${n?n+"枚を削除":"削除"}</button></div></div>`;}
+  <div class="r2"><button class="sbtn" data-selplace ${n?"":"disabled"}>場所を設定</button><button class="sbtn" data-selmove ${n?"":"disabled"}>別の旅へ</button><button class="sbtn delbtn" data-seldel ${n?"":"disabled"}>${n?"削除":"削除"}</button></div></div>`;}
 const pickTile=p=>`<button data-pick-id="${esc(p.id)}" class="${S.picked.has(p.id)?"picked":""}">${img(p)}<span class="chk"></span></button>`;
 /* --- 同期の状態 --- */
 function syncBox(){
@@ -1177,6 +1180,7 @@ function bindTrip(id){
   $("[data-deltrip]").onclick=()=>confirmDlg("この旅をまるごと削除しますか？",`「${i.name}」の写真${i.ps.length}枚とメモを、このアプリから削除します。スマホの写真アルバムにある元の写真は消えません。`,"削除する",()=>{
     removePhotos(tr.ids.slice());delete META.trip[id];saveMeta();sync("tripDel",id);S.selMode=null;S.stack.pop();toast("旅を削除しました");render();});
   $$("[data-split]").forEach(b=>b.onclick=()=>splitTrip(tr,b.dataset.split));
+  const spp=$("[data-splitplace]");if(spp)spp.onclick=()=>{const n=splitByPlace(tr);if(n){toast(`場所ごとに${n}つの旅に分けました`);if(!S.trips.some(x=>x.id===id))S.stack.pop();render();}};
   const st=$("[data-sendtrip]");if(st)st.onclick=()=>exportPhotos("trip",tr);
   const sp=$("[data-setplace]");if(sp)sp.onclick=()=>{
     const targets=tr.ids.filter(id=>{const p=P_(id);return !p.gps&&(!p.place||p.how==="manual"||!hasDetail(p.place));});
@@ -1206,6 +1210,10 @@ function bindSelect(){
     const gpsN=ids.filter(x=>P_(x).gps).length;
     pickPlace(`${ids.length}枚の場所を選ぶ`,gpsN?`位置情報がある${gpsN}枚はそのままにして、残りの写真に設定します。`:"選んだ写真に設定します。",manualOf(ids[0]),v=>{
       const t=ids.filter(x=>!P_(x).gps);setManual(t,v);S.selMode=null;S.picked=new Set();toast(v?`${t.length}枚を${placeText(v)}に設定しました`:"設定を外しました");render();});};
+  const sm=$("[data-selmove]");if(sm)sm.onclick=()=>{const ids=[...S.picked];if(!ids.length)return;
+    pickTrip(ids,tr=>{S.selMode=null;S.picked=new Set();const t=S.stack[S.stack.length-1];
+      if(t&&t.type==="trip"&&!S.trips.some(x=>x.id===t.id))S.stack.pop();
+      toast(`${ids.length}枚を「${tripInfo(tr).name}」の旅に移しました`);render();});};
   const sd=$("[data-seldel]");if(sd)sd.onclick=()=>{const ids=[...S.picked];if(!ids.length)return;
     confirmDlg(`${ids.length}枚を削除しますか？`,"このアプリから削除します（相手のアプリからも消えます）。スマホの写真アルバムにある元の写真は消えません。","削除する",()=>{
       removePhotos(ids);S.selMode=null;S.picked=new Set();
@@ -1243,9 +1251,43 @@ document.addEventListener("pointermove",e=>{
 },{passive:false});
 const sdEnd=()=>{if(SD&&SD.active)S.dragEnd=Date.now();SD=null;clearInterval(autoT);autoT=null;};
 document.addEventListener("pointerup",sdEnd,true);document.addEventListener("pointercancel",sdEnd,true);
+/* 写真を別の旅へ移す（target が null なら新しい旅を作る） */
+function moveToTrip(ids,target){
+  const set=new Set(ids),from=new Set();
+  S.trips.forEach(t=>{if(t.ids.some(x=>set.has(x)))from.add(t.id);t.ids=t.ids.filter(x=>!set.has(x));});
+  S.trips=S.trips.filter(t=>t.ids.length);
+  let tr=target?S.trips.find(t=>t.id===target):null;
+  if(tr){tr.ids.push(...ids);sortTrip(tr);}
+  else{const t0=Math.min(...ids.map(x=>P_(x).t));tr={id:"trip-"+t0+"-"+Math.random().toString(36).slice(2,6),ids:ids.slice()};sortTrip(tr);S.trips.push(tr);}
+  META.split[tr.id]=true;from.forEach(id=>{if(S.trips.some(t=>t.id===id))META.split[id]=true;});
+  sortTrips();saveTrips();saveMeta();sync("settings");
+  return tr;
+}
+function pickTrip(ids,done){
+  const d=document.createElement("div");d.className="dlg";const cur=S.stack[S.stack.length-1];
+  const list=S.trips.filter(t=>!(cur&&cur.type==="trip"&&t.id===cur.id)).slice(0,40);
+  d.innerHTML=`<div class="in pk"><h3>${ids.length}枚をどの旅に移しますか？</h3><p>写真の場所や撮影日時はそのままで、入る旅だけが変わります。</p>
+    <div class="pres"><button class="pr" data-to=""><b>＋ 新しい旅にする</b><span>選んだ写真だけで、別の旅を作ります</span></button>
+    ${list.map(t=>{const i=tripInfo(t);return `<button class="pr" data-to="${esc(t.id)}"><b>${esc(i.name)}</b><span>${rangeText(i.s,i.e)}・${i.ps.length}枚</span></button>`;}).join("")}</div>
+    <div class="row" style="margin-top:10px"><button class="sbtn" data-x>やめる</button></div></div>`;
+  document.body.appendChild(d);
+  d.querySelector("[data-x]").onclick=()=>d.remove();d.onclick=e=>{if(e.target===d)d.remove();};
+  d.querySelectorAll("[data-to]").forEach(b=>b.onclick=()=>{d.remove();done(moveToTrip(ids,b.dataset.to||null));});
+}
+/* 1つの旅に、離れた場所（県・国）の写真が混ざっていたら、場所ごとに分ける */
+function placeGroups(tr){
+  const g={};tr.ids.forEach(id=>{const p=P_(id);const k=p.place?p.place.pref:"";(g[k]=g[k]||[]).push(id);});
+  return g;
+}
+function splitByPlace(tr){
+  const g=placeGroups(tr),keys=Object.keys(g).filter(k=>k).sort((a,b)=>g[b].length-g[a].length);
+  if(keys.length<2)return 0;
+  for(const k of keys.slice(1)){moveToTrip(g[k],null);}
+  return keys.length;
+}
 function updSelBar(){const n=S.picked.size,bar=$(".selbar");if(!bar)return;
   bar.querySelector(".r1 span").textContent=n?n+"枚を選択中":"タップ、または指でなぞって選択";
-  const d=bar.querySelector("[data-seldel]"),p=bar.querySelector("[data-selplace]");d.disabled=p.disabled=!n;d.textContent=n?n+"枚を削除":"削除";}
+  const d=bar.querySelector("[data-seldel]"),p=bar.querySelector("[data-selplace]"),m=bar.querySelector("[data-selmove]");d.disabled=p.disabled=!n;if(m)m.disabled=!n;}
 /* 地図のズーム・移動・タップ */
 function bindMap(){
   const svg=$("#jpmap"),card=$("#mapcard");

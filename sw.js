@@ -1,6 +1,6 @@
 // ふたりの旅アルバム：オフラインでも開けるようにアプリ本体を保存しておく
 // 更新したときは VERSION を変えると、新しい版に切り替わります
-const VERSION="v9";
+const VERSION="v10";
 const CACHE="tabi-album-"+VERSION;
 const FILES=["./","./index.html","./manifest.webmanifest","./icon-192.png","./icon-512.png","./apple-touch-icon.png"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting()));});
