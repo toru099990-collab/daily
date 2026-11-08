@@ -220,6 +220,7 @@ textarea:focus,input:focus{outline:2px solid #cfe0b8;border-color:transparent}
 
 /* その他 */
 .ov{position:fixed;inset:0;background:rgba(242,236,223,.94);z-index:60;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px}
+.ovpct{font-family:"M PLUS Rounded 1c";font-weight:800;font-size:34px;color:var(--green-d);line-height:1}
 .ov .bar2{width:240px;height:8px;background:#e1d9c6;border-radius:99px;overflow:hidden}
 .ov .bar2 i{display:block;height:100%;background:var(--green);width:0;transition:width .2s}
 .ov .bar2 i.busy{width:35%!important;animation:busy 1.1s ease-in-out infinite alternate}
@@ -254,7 +255,7 @@ textarea:focus,input:focus{outline:2px solid #cfe0b8;border-color:transparent}
 <input type="file" id="fileIn" multiple accept="image/*,.heic,.heif" class="hidden">
 <input type="file" id="dirIn" webkitdirectory multiple class="hidden">
 <input type="file" id="importIn" accept=".json,application/json,text/plain" class="hidden">
-<div class="ov hidden" id="ov"><div class="r" style="font-weight:800">写真を読み込んでいます…</div><div class="bar2"><i id="ovBar"></i></div><div style="font-size:12px;color:var(--sub)" id="ovSub"></div></div>
+<div class="ov hidden" id="ov"><div class="r" style="font-weight:800">写真を読み込んでいます…</div><div id="ovPct" class="ovpct"></div><div class="bar2"><i id="ovBar"></i></div><div style="font-size:12px;color:var(--sub);text-align:center;line-height:1.7;padding:0 24px" id="ovSub"></div><button class="sbtn hidden" id="ovCancel">やめる</button></div>
 <div class="toast" id="toast"></div>
 <div id="syncpill" class="syncpill hidden"></div>
 
@@ -656,7 +657,8 @@ async function handleFiles(list){
   if(!files.length){hideOv();toast("写真が見つかりませんでした");return;}
   $("#ov").classList.remove("hidden");
   const added=[];let done=0,i=0;
-  const step=()=>{$("#ovBar").style.width=(done/files.length*100)+"%";$("#ovSub").textContent=`${done} / ${files.length} 枚`;};step();
+  $("#ov .r").textContent="写真を取り込んでいます…";$("#ovBar").classList.remove("busy");$("#ovCancel").classList.add("hidden");
+  const step=()=>{const pc=Math.floor(done/files.length*100);$("#ovBar").style.width=pc+"%";$("#ovPct").textContent=pc+"%";$("#ovSub").textContent=`${done} / ${files.length} 枚`;};step();
   let skipped=0,dups=0;const DIDX=dupIndex();
   const worker=async()=>{while(i<files.length){const f=files[i++];
     try{const p=await loadOne(f,DIDX);if(p==="dup"){dups++;}else if(p){added.push(p);S.photos.set(p.id,p);if(!p.dateGuess&&p.h){const k=Math.floor(p.t/1000);(DIDX.get(k)||DIDX.set(k,[]).get(k)).push(p);}}else skipped++;}
@@ -776,7 +778,7 @@ const img=(p,cls="")=>p&&p.thumb?`<img src="${p.thumb}" class="${cls}" loading="
 function renderTabs(){
   const t=[["map","地図",I.map],["trips","旅行",I.trip],["album","写真一覧",I.photos],["add","追加",I.add]];
   $("#tabbar").innerHTML=t.map(([k,l,ic])=>`<button data-tab="${k}" class="${S.tab===k&&!S.stack.length?"on":""}"><span class="ic">${ic}</span>${l}</button>`).join("");
-  $$("#tabbar [data-tab]").forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab;S.stack=[];S.sel=null;render();window.scrollTo(0,0);});
+  $$("#tabbar [data-tab]").forEach(b=>b.onclick=()=>{SCROLL[viewKey()]=window.scrollY;const same=S.tab===b.dataset.tab&&!S.stack.length;S.tab=b.dataset.tab;S.stack=[];S.sel=null;render();restoreScroll(same?0:(SCROLL[viewKey()]||0));});
 }
 /* 位置情報のない写真の場所を補う：手動設定 ＞ 同じ旅の近い時間の写真から推定 */
 function applyPlaces(){
@@ -877,8 +879,12 @@ function render(){
   else app.innerHTML=vAdd();
   bind();
 }
-function push(o){S.selMode=null;S.muniF=null;S.stack.push(o);render();window.scrollTo(0,0);}
-function pop(){S.selMode=null;S.muniF=null;S.stack.pop();render();}
+/* 画面ごとのスクロール位置を覚えておき、「戻る」で元の位置に戻す */
+const SCROLL={};
+const viewKey=()=>{const t=S.stack[S.stack.length-1];return t?(t.type+":"+(t.id||t.pref)):"tab:"+S.tab;};
+const restoreScroll=y=>{window.scrollTo(0,y);requestAnimationFrame(()=>window.scrollTo(0,y));setTimeout(()=>window.scrollTo(0,y),60);};
+function push(o){SCROLL[viewKey()]=window.scrollY;S.selMode=null;S.muniF=null;S.stack.push(o);render();window.scrollTo(0,0);}
+function pop(){S.selMode=null;S.muniF=null;S.stack.pop();render();restoreScroll(SCROLL[viewKey()]||0);}
 function backBtn(){return `<button class="iconbtn" data-back>${I.back}</button>`;}
 
 /* --- 地図 --- */
@@ -1337,8 +1343,8 @@ function regroup(V){
   V.groups=dedupeOn()?groupPhotos(ps).map(g=>({rep:g.rep.id,ids:g.ps.map(p=>p.id)})):ps.map(p=>({rep:p.id,ids:[p.id]}));
   V.gi=Math.max(0,V.groups.findIndex(g=>g.ids.includes(V.pid)));
 }
-function openViewer(ctx){regroup(ctx);S.viewer=ctx;let el=$("#vw");if(!el){el=document.createElement("div");el.id="vw";el.className="vw";document.body.appendChild(el);}document.body.style.overflow="hidden";drawViewer();}
-function closeViewer(){const el=$("#vw");if(el)el.remove();document.body.style.overflow="";S.viewer=null;render();}
+function openViewer(ctx){regroup(ctx);ctx.y=window.scrollY;S.viewer=ctx;let el=$("#vw");if(!el){el=document.createElement("div");el.id="vw";el.className="vw";document.body.appendChild(el);}document.body.style.overflow="hidden";drawViewer();}
+function closeViewer(){const y=(S.viewer&&S.viewer.y!=null)?S.viewer.y:window.scrollY;const el=$("#vw");if(el)el.remove();document.body.style.overflow="";S.viewer=null;render();restoreScroll(y);}
 function drawViewer(menu=false){
   const V=S.viewer,el=$("#vw"),k=V.gi,G=V.groups[k],p=P_(V.pid);
   if(!p){closeViewer();return;}
@@ -1456,7 +1462,7 @@ const recOf=p=>({id:p.id,added:p.added,sub:!!p.sub,fromPartner:!!p.fromPartner,f
 /* ================= ふたりで共有（ファイルで受け渡し） ================= */
 const newCount=()=>[...S.photos.values()].filter(p=>!p.id.startsWith("demo-")&&(p.added||0)>(META.lastExport||0)&&!p.fromPartner).length;
 function setOv(text,sub,ratio){const o=$("#ov");o.classList.remove("hidden");o.querySelector(".r").textContent=text;$("#ovSub").textContent=sub||"";$("#ovBar").style.width=((ratio||0)*100)+"%";}
-const hideOv=()=>{$("#ovBar").classList.remove("busy");$("#ov").classList.add("hidden");$("#ov .r").textContent="写真を読み込んでいます…";};
+const hideOv=()=>{$("#ovPct").textContent="";$("#ovCancel").classList.add("hidden");$("#ovBar").classList.remove("busy");$("#ov").classList.add("hidden");$("#ov .r").textContent="写真を読み込んでいます…";};
 async function exportPhotos(mode,trip){
   let ids;
   if(mode==="trip")ids=trip.ids.slice();
@@ -1567,14 +1573,25 @@ function removePhotos(ids,fromCloud){
 }
 /* ================= 起動 ================= */
 /* 写真を選んで右上のボタンを押した直後から「受け取り中」を出す（iPhoneは写真の受け渡しに時間がかかるため） */
-let picking=0;
-function startPick(input){picking=Date.now();input.click();}
-function pickWaiting(){if(!picking||Date.now()-picking<400)return;setOv("選んだ写真を受け取っています…","枚数が多いと少し時間がかかります",0);$("#ovBar").classList.add("busy");setTimeout(()=>{if(picking){picking=0;hideOv();}},120000);}
-window.addEventListener("focus",()=>setTimeout(pickWaiting,50));
-document.addEventListener("visibilitychange",()=>{if(!document.hidden)setTimeout(pickWaiting,50);});
-["fileIn","dirIn"].forEach(id=>$("#"+id).addEventListener("cancel",()=>{picking=0;hideOv();}));
-$("#fileIn").onchange=e=>{picking=0;$("#ovBar").classList.remove("busy");handleFiles(e.target.files);e.target.value="";};
-$("#dirIn").onchange=e=>{picking=0;$("#ovBar").classList.remove("busy");handleFiles(e.target.files);e.target.value="";};
+/* 「写真を選ぶ」を押した時点で待ち画面を出しておく。
+   iPhoneは右上のチェックを押してから、写真をアプリに渡すまでに時間がかかる（この間の進み具合はアプリからは分からない） */
+let picking=0,pickT=null;
+function startPick(input){
+  picking=Date.now();input.click();
+  setOv("写真を選んで、右上のチェックを押してください","",0);$("#ovBar").classList.add("busy");$("#ovCancel").classList.remove("hidden");
+  clearInterval(pickT);pickT=setInterval(()=>{
+    if(!picking){clearInterval(pickT);return;}
+    const sec=Math.floor((Date.now()-picking)/1000),mm=Math.floor(sec/60),ss=String(sec%60).padStart(2,"0");
+    $("#ovPct").textContent=`${mm}:${ss}`;
+    $("#ov .r").textContent=sec<4?"写真を選んで、右上のチェックを押してください":"写真の受け取りを待っています…";
+    $("#ovSub").innerHTML=sec<4?"":"チェックを押したあと、iPhoneが写真をアプリに渡す準備をしています。<br>枚数が多いと数分かかります。この間の進み具合はiPhone側の処理のため表示できません。"+(sec>=90?"<br><b>時間がかかっています。iCloudから写真を取り寄せている可能性があります。1回に選ぶ枚数を減らす（100〜200枚）と早くなります。</b>":"");
+    if(sec>900){picking=0;hideOv();}
+  },500);
+}
+$("#ovCancel").onclick=()=>{picking=0;clearInterval(pickT);hideOv();};
+["fileIn","dirIn"].forEach(id=>$("#"+id).addEventListener("cancel",()=>{picking=0;clearInterval(pickT);hideOv();}));
+$("#fileIn").onchange=e=>{picking=0;clearInterval(pickT);$("#ovBar").classList.remove("busy");handleFiles(e.target.files);e.target.value="";};
+$("#dirIn").onchange=e=>{picking=0;clearInterval(pickT);$("#ovBar").classList.remove("busy");handleFiles(e.target.files);e.target.value="";};
 $("#importIn").onchange=e=>{const f=e.target.files[0];e.target.value="";if(f)importFile(f);};
 document.addEventListener("dragover",e=>{e.preventDefault();$("#drop")?.classList.add("drag");});
 document.addEventListener("dragleave",e=>{if(!e.relatedTarget)$("#drop")?.classList.remove("drag");});
@@ -1616,7 +1633,13 @@ function softRender(){clearTimeout(rq);rq=setTimeout(()=>{
   if(S.viewer){if(document.activeElement&&document.activeElement.id==="cin")return;drawViewer();return;}
   if(isTyping()){softRender();return;}const y=window.scrollY;render();window.scrollTo(0,y);},500);}
 function refreshAdd(){if(S.tab==="add"&&!S.stack.length&&!S.viewer&&!isTyping())render();}
-function pill(){const el=document.getElementById("syncpill");if(!el)return;if(ST.user&&(ST.pending||ST.down)){el.textContent=ST.pending?`☁ 送信中 ${ST.pending}枚`:`☁ 受信中 ${ST.down}枚`;el.classList.remove("hidden");}else el.classList.add("hidden");}
+function pill(){const el=document.getElementById("syncpill");if(!el)return;
+  if(!ST.pending)ST.upTotal=0;else ST.upTotal=Math.max(ST.upTotal||0,ST.pending);
+  if(!ST.down)ST.downTotal=0;else ST.downTotal=Math.max(ST.downTotal||0,ST.down);
+  if(ST.user&&(ST.pending||ST.down)){
+    const pc=(n,t)=>t?Math.floor((t-n)/t*100):0;
+    el.textContent=ST.pending?`☁ クラウドに送信中 ${pc(ST.pending,ST.upTotal)}%（残り${ST.pending}枚）`:`☁ 受信中 ${pc(ST.down,ST.downTotal)}%（残り${ST.down}枚）`;
+    el.classList.remove("hidden");}else el.classList.add("hidden");}
 if(CFG&&CFG.apiKey)boot().catch(e=>{ST.on=true;ST.err="同期の準備に失敗しました（"+(e&&e.message||e)+"）";refreshAdd();});
 async function boot(){
   const B="https://www.gstatic.com/firebasejs/10.12.2/";
