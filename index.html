@@ -622,12 +622,12 @@ async function loadOne(f){
   const im=await decode(f);
   if(im){try{
     // 大きな元画像を縮めるのは1回だけ。そこからさらに小さい画像と「似た写真」用の指紋を作る
-    const W=im.naturalWidth||im.width,Hh=im.naturalHeight||im.height,s1=Math.min(1,1440/Math.max(W,Hh));
+    const W=im.naturalWidth||im.width,Hh=im.naturalHeight||im.height,s1=Math.min(1,1080/Math.max(W,Hh));
     const c=document.createElement("canvas");c.width=Math.max(1,Math.round(W*s1));c.height=Math.max(1,Math.round(Hh*s1));
     c.getContext("2d").drawImage(im,0,0,c.width,c.height);if(im.close)im.close();
-    fullU=c.toDataURL("image/jpeg",.82);
-    const s2=Math.min(1,400/Math.max(c.width,c.height)),t=document.createElement("canvas");t.width=Math.max(1,Math.round(c.width*s2));t.height=Math.max(1,Math.round(c.height*s2));
-    t.getContext("2d").drawImage(c,0,0,t.width,t.height);thumbU=t.toDataURL("image/jpeg",.78);
+    fullU=c.toDataURL("image/jpeg",.72);
+    const s2=Math.min(1,320/Math.max(c.width,c.height)),t=document.createElement("canvas");t.width=Math.max(1,Math.round(c.width*s2));t.height=Math.max(1,Math.round(c.height*s2));
+    t.getContext("2d").drawImage(c,0,0,t.width,t.height);thumbU=t.toDataURL("image/jpeg",.72);
     an=await analyze(t);c.width=c.height=0;
   }catch(e){}}
   const rec={id,added:Date.now(),name:f.name,t:ex.t??f.lastModified,dateGuess:ex.t==null,lat:ex.lat??null,lon:ex.lon??null,thumbU,h:an&&an.h,sh:an&&an.sh,col:an&&an.col};
@@ -1499,7 +1499,8 @@ async function boot(){
   }
   // ---- 送信
   const upQ=new Set();let upping=false;
-  async function shrink(u,max){const im=await loadImg(u);if(!im)return u;const s=Math.min(1,max/Math.max(im.naturalWidth,im.naturalHeight));const c=document.createElement("canvas");c.width=Math.round(im.naturalWidth*s);c.height=Math.round(im.naturalHeight*s);c.getContext("2d").drawImage(im,0,0,c.width,c.height);return c.toDataURL("image/jpeg",.75);}
+  // クラウドの無料枠（約1GB）に多く入るよう、送る前に写真を小さくする（元の写真はiPhoneに残る）
+  async function shrink(u,max,q){const im=await loadImg(u);if(!im)return u;const s=Math.min(1,max/Math.max(im.naturalWidth,im.naturalHeight));if(s>=1&&u.length<220000)return u;const c=document.createElement("canvas");c.width=Math.round(im.naturalWidth*s);c.height=Math.round(im.naturalHeight*s);c.getContext("2d").drawImage(im,0,0,c.width,c.height);const r=c.toDataURL("image/jpeg",q||.72);return r.length<u.length?r:u;}
   async function pumpUp(){
     if(upping||!ST.user)return;upping=true;
     for(const id of [...upQ]){
@@ -1507,9 +1508,9 @@ async function boot(){
       ST.pending=upQ.size;pill();
       try{
         const k=key(id);
-        if(p.thumb)await setDoc(doc(db,ROOT+"/thumbs",k),{u:p.thumb});
+        if(p.thumb){const tu=p.thumb.length>40000?await shrink(p.thumb,320,.72):p.thumb;await setDoc(doc(db,ROOT+"/thumbs",k),{u:tu});}
         const f=await dbGet("full",id);
-        if(f&&f.u){let u=f.u;if(u.length>900000)u=await shrink(u,1024);await setDoc(doc(db,ROOT+"/full",k),{u});}
+        if(f&&f.u){const u=f.u.length>220000?await shrink(f.u,1080,.72):f.u;await setDoc(doc(db,ROOT+"/full",k),{u});}
         await setDoc(doc(db,ROOT+"/photos",k),{id,name:p.name||"",t:p.t,dateGuess:!!p.dateGuess,lat:p.lat??null,lon:p.lon??null,h:p.h||null,sh:p.sh||0,col:p.col||null,by:META.names[META.me||0]||"",u:Date.now()});
         p.up=true;dbPut("photos",recOf(p));upQ.delete(id);
       }catch(e){ST.err=fsMsg(e);break;}
