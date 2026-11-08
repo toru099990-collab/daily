@@ -147,7 +147,12 @@ textarea:focus,input:focus{outline:2px solid #cfe0b8;border-color:transparent}
 .grid .picked .chk{background:var(--green)}
 .grid .picked .chk::after{content:"✓";color:#fff;font-size:13px;font-weight:800;position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
 .selbar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--tabh) + 22px + env(safe-area-inset-bottom));width:min(440px,calc(100% - 24px));background:var(--ink);color:#fff;border-radius:18px;padding:10px 12px;display:flex;gap:8px;align-items:center;z-index:25;font-size:13px;font-weight:700}
-.selbar span{flex:1}
+.selbar{flex-direction:column;align-items:stretch;gap:8px}
+.selbar .r1,.selbar .r2{display:flex;gap:8px;align-items:center}
+.selbar .r1 span{flex:1}
+.selbar .r2 .sbtn{flex:1;padding:10px 0;font-size:13px}
+.selbtn{margin-left:auto;flex:none}
+.grid button,.grid img{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .selbar .sbtn{background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.25)}
 .selbar .delbtn{background:#c4553a;border-color:#c4553a}
 .selbar .delbtn:disabled{opacity:.4}
@@ -513,8 +518,10 @@ function parseTiff(dv,t){
   };
   const out={},i0=ifd(u32(t+4));
   let ds=i0[0x0132]?val(i0[0x0132]):null;
-  if(i0[0x8769]){const ex=ifd(val(i0[0x8769]));if(ex[0x9003])ds=val(ex[0x9003]);else if(ex[0x9004])ds=val(ex[0x9004]);}
-  if(ds){const m=ds.match(/(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):?(\d{2})?/);if(m&&+m[1]>1990)out.t=new Date(+m[1],m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0)).getTime();}
+  let sub=null;
+  if(i0[0x8769]){const ex=ifd(val(i0[0x8769]));if(ex[0x9003])ds=val(ex[0x9003]);else if(ex[0x9004])ds=val(ex[0x9004]);
+    const se=ex[0x9291]||ex[0x9290];if(se){const v=String(val(se)||"").trim();if(/^\d+$/.test(v))sub=Math.round(+("0."+v)*1000);}}
+  if(ds){const m=ds.match(/(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):?(\d{2})?/);if(m&&+m[1]>1990){out.t=new Date(+m[1],m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0)).getTime();if(sub!=null){out.t+=Math.min(999,sub);out.sub=true;}}}
   if(i0[0x8825]){
     const g=ifd(val(i0[0x8825]));
     if(g[2]&&g[4]){
@@ -613,7 +620,7 @@ async function decode(file){
   if(im){DIAG.ok++;DIAG.how[how]=(DIAG.how[how]||0)+1;}else{DIAG.fail++;if(/hei[cf]/i.test(file.type+file.name))DIAG.heic++;}
   return im;
 }
-async function loadOne(f){
+async function loadOne(f,didx){
   const id=f.name+"|"+f.size+"|"+f.lastModified;
   if(S.photos.has(id))return null;
   const jpeg=/\.jpe?g$/i.test(f.name)||f.type==="image/jpeg";
@@ -630,14 +637,15 @@ async function loadOne(f){
     t.getContext("2d").drawImage(c,0,0,t.width,t.height);thumbU=t.toDataURL("image/jpeg",.72);
     an=await analyze(t);c.width=c.height=0;
   }catch(e){}}
-  const rec={id,added:Date.now(),name:f.name,t:ex.t??f.lastModified,dateGuess:ex.t==null,lat:ex.lat??null,lon:ex.lon??null,thumbU,h:an&&an.h,sh:an&&an.sh,col:an&&an.col};
+  if(didx&&ex.t!=null&&an&&an.h){const q=findDup({id,t:ex.t,sub:!!ex.sub,h:an.h,lat:ex.lat??null,lon:ex.lon??null,dateGuess:false},didx);if(q)return "dup";}
+  const rec={id,added:Date.now(),sub:!!ex.sub,name:f.name,t:ex.t??f.lastModified,dateGuess:ex.t==null,lat:ex.lat??null,lon:ex.lon??null,thumbU,h:an&&an.h,sh:an&&an.sh,col:an&&an.col};
   dbPut("photos",rec);if(fullU){dbPut("full",{id,u:fullU});FULL.set(id,fullU);if(FULL.size>24)FULL.delete(FULL.keys().next().value);}
   return hydrate(rec);
 }
 function hydrate(rec){
   const p={id:rec.id,name:rec.name,t:rec.t,dateGuess:rec.dateGuess,lat:rec.lat,lon:rec.lon,
-    added:rec.added||0,fromPartner:!!rec.fromPartner,fromRemote:!!rec.fromRemote,up:!!rec.up,by:rec.by||"",thumb:rec.thumbU||null,fullU:rec.fullU||null,h:rec.h||null,sh:rec.sh||0,col:rec.col||null};
-  if(p.lat!=null)p.gps=nearestPlace(p.lat,p.lon);
+    added:rec.added||0,sub:!!rec.sub,fromPartner:!!rec.fromPartner,fromRemote:!!rec.fromRemote,up:!!rec.up,by:rec.by||"",thumb:rec.thumbU||null,fullU:rec.fullU||null,h:rec.h||null,sh:rec.sh||0,col:rec.col||null};
+  if(p.lat!=null){try{p.gps=nearestPlace(p.lat,p.lon);}catch(e){p.gps=null;DIAG.err="場所の判定エラー: "+(e&&e.message);}}
   p.place=p.gps||null;
   return p;
 }
@@ -647,14 +655,18 @@ async function handleFiles(list){
   $("#ov").classList.remove("hidden");
   const added=[];let done=0,i=0;
   const step=()=>{$("#ovBar").style.width=(done/files.length*100)+"%";$("#ovSub").textContent=`${done} / ${files.length} 枚`;};step();
-  const worker=async()=>{while(i<files.length){const f=files[i++];try{const p=await loadOne(f);if(p)added.push(p);}catch(e){}done++;step();await new Promise(r=>setTimeout(r,0));}};
+  let skipped=0,dups=0;const DIDX=dupIndex();
+  const worker=async()=>{while(i<files.length){const f=files[i++];
+    try{const p=await loadOne(f,DIDX);if(p==="dup"){dups++;}else if(p){added.push(p);S.photos.set(p.id,p);if(!p.dateGuess&&p.h){const k=Math.floor(p.t/1000);(DIDX.get(k)||DIDX.set(k,[]).get(k)).push(p);}}else skipped++;}
+    catch(e){DIAG.saveFail=(DIAG.saveFail||0)+1;DIAG.err="保存エラー: "+(e&&(e.message||e.name)||e)+(e&&e.stack?" @"+String(e.stack).split("\n")[1]:"");}
+    done++;step();await new Promise(r=>setTimeout(r,0));}};
   await Promise.all([worker(),worker()]);
   $("#ov").classList.add("hidden");
-  if(!added.length){toast("すべて読み込み済みの写真でした");return;}
+  if(!added.length){toast(dups?`同じ写真がすでに入っていたので、取り込みませんでした（${dups}枚）`:skipped?"すべて読み込み済みの写真でした":"写真を保存できませんでした。「追加」タブの診断欄の画面を送ってください");return;}
   added.forEach(p=>S.photos.set(p.id,p));
   const before=S.trips.length;addToTrips(added);sync("upload",added.map(p=>p.id));
   const nNew=S.trips.length-before,noGeo=added.filter(p=>p.lat==null).length;
-  toast(`${added.length}枚を読み込みました（${nNew>0?`新しい旅 ${nNew}件`:"これまでの旅に追加"}）${noGeo?` ・位置情報なし ${noGeo}枚`:""}`);
+  toast(`${added.length}枚を読み込みました（${nNew>0?`新しい旅 ${nNew}件`:"これまでの旅に追加"}）${dups?` ・重複 ${dups}枚は取り込まず`:""}${noGeo?` ・位置情報なし ${noGeo}枚`:""}`);
   S.tab="map";S.stack=[];render();
 }
 
@@ -715,7 +727,7 @@ function tripInfo(tr){
   const ps=tr.ids.map(P_),[s,e]=tripRange(tr),cnt={};let geo=0;
   ps.forEach(p=>{if(p.place){cnt[p.place.pref]=(cnt[p.place.pref]||0)+1;geo++;}});
   const prefs=Object.entries(cnt).sort((a,b)=>b[1]-a[1]).map(x=>x[0]);
-  const main=Object.entries(cnt).sort((a,b)=>b[1]-a[1]).filter(([k,v])=>v>=Math.max(1,geo*.15)).slice(0,3).map(x=>x[0]);
+  const main=Object.entries(cnt).sort((a,b)=>b[1]-a[1]).slice(0,1).map(x=>x[0]);
   const auto=main.length?main.join("・"):`${new Date(s).getMonth()+1}月の旅（場所未設定）`;
   const ac={};ps.forEach(p=>{if(p.place&&main.includes(p.place.pref)){const a=areaOf(p.place);if(a)ac[a]=(ac[a]||0)+1;}});
   const detail=Object.entries(ac).sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>x[0]).join("・");
@@ -987,15 +999,15 @@ function vPref(pref){
     const spots=[...new Set(ps.map(p=>areaOf(p.place)).filter(Boolean))];
     return `<div class="day"><div class="dh"><button class="dn" data-trip="${tr.id}" style="text-align:left">${esc(i.name)} ›</button><span class="dd">${rangeText(i.s,i.e)}・${ps.length}枚</span></div>
       <div class="rt">${spots.map(esc).join("・")}</div>
-      <div class="grid">${(dedupeOn()?repsOf(ps):ps).map(p=>`<button data-photo="${p.id}" data-ctx="pref:${esc(pref)}${f?"|"+esc(f):""}" class="${(META.cmt[p.id]||[]).length?"cm":""}">${img(p)}${stackBadge(p)}</button>`).join("")}</div></div>`;
+      <div class="grid">${inSel()?ps.map(pickTile).join(""):(dedupeOn()?repsOf(ps):ps).map(p=>`<button data-photo="${p.id}" data-ctx="pref:${esc(pref)}${f?"|"+esc(f):""}" class="${(META.cmt[p.id]||[]).length?"cm":""}">${img(p)}${stackBadge(p)}</button>`).join("")}</div></div>`;
   }).join("");
-  return `<div class="top">${backBtn()}<h1>${esc(fullPref(pref))}</h1>${jp?`<div class="count">エリア<b>${mus.length}</b>/${total}</div>`:""}</div>
+  return `<div class="top">${backBtn()}<h1>${esc(fullPref(pref))}</h1>${jp&&!inSel()?`<div class="count">エリア<b>${mus.length}</b>/${total}</div>`:""}${selBtn()}</div>
   ${jp?`<div class="box" style="margin-top:0">${muniMapSVG(pref,e)}<div class="maptip">${f?`<b>${esc(f)}</b> の写真を表示中`:"エリアをタップすると、そこの写真だけを表示します"}</div>${chips}</div>`:`<div class="hero">${e.cover&&e.cover.thumb?`<img src="${e.cover.thumb}" data-fid="${esc(e.cover.id)}" alt="">`:`<div class="ph"></div>`}<div class="tx"><div class="tt">${esc(pref)}</div><div class="mt">${e.trips.size}回の旅・${e.ids.length}枚</div></div></div>`}
   ${(()=>{if(!jp)return "";const noc=e.ids.filter(id=>!P_(id).place.spot);if(!noc.length)return "";
     return `<div class="box" style="display:flex;gap:12px;align-items:center;background:#fff4e6"><div style="flex:1;font-size:13px;line-height:1.6"><b>細かい場所がわからない写真が${noc.length}枚あります</b><br><span style="color:var(--sub)">写真に位置情報が付いていないため、市区町村を判定できませんでした。</span></div><button class="sbtn" data-prefcity style="flex:none;background:var(--green);color:#fff;border-color:var(--green)">場所を選ぶ</button></div>`;})()}
   <div class="box dedupe"><span>似た写真は代表の1枚だけ表示</span><button class="sw${dedupeOn()?" on":""}" data-dedupe aria-label="似た写真をまとめる"></button></div>
   ${f?`<div style="margin-top:12px"><button class="sbtn" data-muf="">✕ 絞り込みを解除（${esc(f)}）</button></div>`:""}
-  ${body}`;
+  ${body}${selBar()}`;
 }
 /* --- 旅行詳細 --- */
 function routeSVG(days){
@@ -1023,19 +1035,19 @@ function vTrip(id){
   const tr=S.trips.find(t=>t.id===id);if(!tr){S.stack.pop();return vMap();}
   const i=tripInfo(tr),m=tmeta(tr.id),days=tripDays(i.ps);
   const k=S.trips.indexOf(tr),newer=S.trips[k-1],older=S.trips[k+1];
-  const sel=S.selMode===tr.id;
+  const sel=inSel();
   const dayHtml=days.map((d,n)=>{
     const dn=calDays(i.s,d.t)+1,spots=[];
     d.ps.forEach(p=>{if(p.place){const s=lbl(p.place);if(!spots.includes(s))spots.push(s);}});
     const col=DAY_COLORS[n%DAY_COLORS.length];
     return `<section class="day"><div class="dh"><span class="dn"><span class="dot" style="background:${col}"></span>${dn}日目</span><span class="dd">${fmtMD(d.t)}・${d.ps.length}枚</span></div>
       <div class="rt">${spots.length?spots.map(esc).join(" <span>→</span> "):"<span>位置情報なし</span>"}</div>
-      <div class="grid">${(sel||!dedupeOn()?d.ps:repsOf(d.ps)).map(p=>sel?`<button data-pick-id="${esc(p.id)}" class="${S.picked.has(p.id)?"picked":""}">${img(p)}<span class="chk"></span></button>`:`<button data-photo="${p.id}" data-ctx="trip:${tr.id}" class="${i.cover===p?"cvmark":""} ${(META.cmt[p.id]||[]).length?"cm":""}">${img(p)}${stackBadge(p)}</button>`).join("")}</div>
+      <div class="grid">${(sel||!dedupeOn()?d.ps:repsOf(d.ps)).map(p=>sel?pickTile(p):`<button data-photo="${p.id}" data-ctx="trip:${tr.id}" class="${i.cover===p?"cvmark":""} ${(META.cmt[p.id]||[]).length?"cm":""}">${img(p)}${stackBadge(p)}</button>`).join("")}</div>
       <textarea data-daymemo="${d.key}" placeholder="この日のひとことメモ">${esc((m.days||{})[d.key]||"")}</textarea>
       ${n>0?`<div class="bar"><button class="sbtn" data-split="${d.key}">✂ この日から別の旅にする</button></div>`:""}</section>`;
   }).join("");
   const legend=days.map((d,n)=>`<span><i style="background:${DAY_COLORS[n%DAY_COLORS.length]}"></i>${calDays(i.s,d.t)+1}日目</span>`).join("");
-  return `<div class="top">${backBtn()}<h1>${esc(i.name)}</h1></div>
+  return `<div class="top">${backBtn()}<h1>${esc(i.name)}</h1>${selBtn()}</div>
   <div class="hero">${i.cover&&i.cover.thumb?`<img src="${i.cover.thumb}" data-fid="${esc(i.cover.id)}" alt="">`:`<div class="ph"></div>`}
     <div class="tx"><input class="tt" id="tname" value="${esc(i.name)}" aria-label="旅の名前"><div class="mt">${i.detail?esc(i.detail)+"<br>":""}${rangeText(i.s,i.e)}・${i.len}・${i.ps.length}枚</div></div></div>
   ${(()=>{const unk=i.ps.filter(p=>!p.place).length,man=i.ps.filter(p=>p.how==="manual").length,noc=i.ps.filter(p=>p.place&&isJP(p.place.pref)&&!hasDetail(p.place)).length;
@@ -1050,10 +1062,18 @@ function vTrip(id){
       ${m.name?`<button class="sbtn" data-resetname>名前を自動に戻す</button>`:""}
     </div>
     <div class="dedupe" style="border-top:1px solid var(--line);padding-top:12px;margin-top:12px"><span>似た写真は代表の1枚だけ表示<br><small style="color:var(--sub)">連写などは右下の数字の写真にまとめます</small></span><button class="sw${dedupeOn()?" on":""}" data-dedupe aria-label="似た写真をまとめる"></button></div>
-    <div class="acts" style="border-top:1px solid var(--line);padding-top:12px"><button class="sbtn" data-selmode>☑ 写真を選んで場所を設定・削除</button><button class="sbtn" data-sendtrip>📤 この旅を送る</button><button class="sbtn danger" data-deltrip>この旅をまるごと削除</button></div></div>
+    <div class="acts" style="border-top:1px solid var(--line);padding-top:12px"><button class="sbtn" data-seltoggle>☑ 写真を選んで削除・場所を設定</button><button class="sbtn" data-sendtrip>📤 この旅を送る</button><button class="sbtn danger" data-deltrip>この旅をまるごと削除</button></div></div>
   ${dayHtml}
-  ${sel?`<div class="selbar"><span>${S.picked.size}枚を選択中</span><button class="sbtn" data-selall>すべて選択</button><button class="sbtn" data-selcancel>やめる</button><button class="sbtn" data-selplace ${S.picked.size?"":"disabled"}>場所を設定</button><button class="sbtn delbtn" data-seldel ${S.picked.size?"":"disabled"}>削除</button></div>`:""}`;
+  ${selBar()}`;
 }
+/* --- 写真の選択（まとめて削除・場所の設定） --- */
+const selKey=()=>{const t=S.stack[S.stack.length-1];if(!t)return null;return t.type==="trip"?"trip:"+t.id:"pref:"+t.pref;};
+const inSel=()=>S.selMode&&S.selMode===selKey();
+function selBtn(){return `<button class="sbtn selbtn" data-seltoggle>${inSel()?"完了":"選択"}</button>`;}
+function selBar(){if(!inSel())return "";const n=S.picked.size;
+  return `<div class="selbar"><div class="r1"><span>${n?n+"枚を選択中":"写真をタップして選択"}</span><button class="sbtn" data-selall>すべて選択</button><button class="sbtn" data-selcancel>やめる</button></div>
+  <div class="r2"><button class="sbtn" data-selplace ${n?"":"disabled"}>場所を設定</button><button class="sbtn delbtn" data-seldel ${n?"":"disabled"}>${n?n+"枚を削除":"削除"}</button></div></div>`;}
+const pickTile=p=>`<button data-pick-id="${esc(p.id)}" class="${S.picked.has(p.id)?"picked":""}">${img(p)}<span class="chk"></span></button>`;
 /* --- 同期の状態 --- */
 function syncBox(){
   const st=window.SYNC_STATE;
@@ -1096,10 +1116,10 @@ function vAdd(){
     1枚だけ：写真を開いて右上の「…」→「この写真を削除」<br>
     まとめて：旅のページの「写真を選んで削除」か「この旅をまるごと削除」<br>
     スマホの写真アルバムにある元の写真は消えません。</div>
-  <div class="box" style="display:flex;align-items:center;justify-content:space-between;gap:10px"><div class="tips">保存中：旅行 ${S.trips.length}件・写真 ${S.photos.size}枚</div><button class="sbtn danger" data-clear>すべて消去</button></div>
+  <div class="box" style="display:flex;align-items:center;justify-content:space-between;gap:10px"><div class="tips">このスマホに入っている写真：${S.photos.size}枚（旅行 ${S.trips.length}件）</div><button class="sbtn danger" data-clear>すべて消去</button></div>
   <div class="box tips"><b>表示の診断</b>（うまく表示されないときに、この欄の画面を送ってください）<br>
     位置情報あり ${[...S.photos.values()].filter(p=>p.lat!=null).length}枚・なし ${[...S.photos.values()].filter(p=>p.lat==null).length}枚<br>
-    画像なしで保存された写真：${[...S.photos.values()].filter(p=>!p.thumb).length}枚 ／ 今回の読み込み 成功 ${DIAG.ok}・失敗 ${DIAG.fail}${DIAG.heic?`（HEIC ${DIAG.heic}）`:""} ／ 表示失敗 ${DIAG.showFail}<br>
+    画像なしで保存された写真：${[...S.photos.values()].filter(p=>!p.thumb).length}枚 ／ 今回の読み込み 成功 ${DIAG.ok}・失敗 ${DIAG.fail}・保存失敗 ${DIAG.saveFail||0}${DIAG.heic?`（HEIC ${DIAG.heic}）`:""} ／ 表示失敗 ${DIAG.showFail}<br>
     方式：${esc(Object.entries(DIAG.how).map(([k,v])=>k+" "+v).join("、")||"—")} ／ 保存：${DB?"OK":"使えません"}<br>
     ${esc(DIAG.err||"")}<br><span style="font-size:10px">${esc(navigator.userAgent.slice(0,120))}</span></div>`;
 }
@@ -1109,7 +1129,8 @@ function bind(){
   $$("[data-back]").forEach(b=>b.onclick=pop);
   $$("[data-trip]").forEach(b=>b.onclick=()=>push({type:"trip",id:b.dataset.trip}));
   $$("[data-pref]").forEach(b=>b.onclick=e=>{e.stopPropagation();push({type:"pref",pref:b.dataset.pref});});
-  $$("[data-photo]").forEach(b=>b.onclick=()=>{
+  bindSelect();
+  $$("[data-photo]").forEach(b=>b.onclick=()=>{if(b._lp){b._lp=0;return;}
     const [kind,val]=b.dataset.ctx.split(/:(.*)/s);
     let ids;
     if(kind==="trip")ids=S.trips.find(t=>t.id===val).ids.slice();
@@ -1150,18 +1171,7 @@ function bindTrip(id){
   $$("[data-daymemo]").forEach(t=>t.oninput=()=>{m.days=m.days||{};m.days[t.dataset.daymemo]=t.value;saveMeta();sync("trip",id);});
   const rn=$("[data-resetname]");if(rn)rn.onclick=()=>{delete m.name;saveMeta();sync("trip",id);render();};
   const keepY=f=>{const y=window.scrollY;f();window.scrollTo(0,y);};
-  $("[data-selmode]").onclick=()=>keepY(()=>{S.selMode=id;S.picked=new Set();render();});
-  $$("[data-pick-id]").forEach(b=>b.onclick=()=>keepY(()=>{const x=b.dataset.pickId;S.picked.has(x)?S.picked.delete(x):S.picked.add(x);render();}));
-  const sc=$("[data-selcancel]");if(sc)sc.onclick=()=>keepY(()=>{S.selMode=null;render();});
-  const sa=$("[data-selall]");if(sa)sa.onclick=()=>keepY(()=>{tr.ids.forEach(x=>S.picked.add(x));render();});
-  const spl=$("[data-selplace]");if(spl)spl.onclick=()=>{const ids=[...S.picked];if(!ids.length)return;
-    const gpsN=ids.filter(x=>P_(x).gps).length;
-    pickPlace(`${ids.length}枚の場所を選ぶ`,gpsN?`位置情報がある${gpsN}枚はそのままにして、残りの写真に設定します。`:"選んだ写真に設定します。",manualOf(ids[0]),v=>{
-      const t=ids.filter(x=>!P_(x).gps);setManual(t,v);S.selMode=null;S.picked=new Set();toast(v?`${t.length}枚を${placeText(v)}に設定しました`:"設定を外しました");render();});};
-  const sd=$("[data-seldel]");if(sd)sd.onclick=()=>{const ids=[...S.picked];if(!ids.length)return;
-    confirmDlg(`${ids.length}枚を削除しますか？`,"このアプリから削除します。スマホの写真アルバムにある元の写真は消えません。","削除する",()=>{
-      const all=ids.length===tr.ids.length;removePhotos(ids);S.selMode=null;S.picked=new Set();
-      if(all){delete META.trip[id];saveMeta();S.stack.pop();}toast(`${ids.length}枚を削除しました`);render();});};
+
   $("[data-deltrip]").onclick=()=>confirmDlg("この旅をまるごと削除しますか？",`「${i.name}」の写真${i.ps.length}枚とメモを、このアプリから削除します。スマホの写真アルバムにある元の写真は消えません。`,"削除する",()=>{
     removePhotos(tr.ids.slice());delete META.trip[id];saveMeta();sync("tripDel",id);S.selMode=null;S.stack.pop();toast("旅を削除しました");render();});
   $$("[data-split]").forEach(b=>b.onclick=()=>splitTrip(tr,b.dataset.split));
@@ -1174,6 +1184,35 @@ function bindTrip(id){
   };
   $$("[data-merge]").forEach(b=>b.onclick=()=>mergeTrips(tr,S.trips.find(t=>t.id===b.dataset.merge)));
 }
+function bindSelect(){
+  const keepY=f=>{const y=window.scrollY;f();window.scrollTo(0,y);};
+  const enter=first=>keepY(()=>{S.selMode=selKey();S.picked=new Set(first?[first]:[]);render();});
+  $$("[data-seltoggle]").forEach(b=>b.onclick=()=>{if(inSel())keepY(()=>{S.selMode=null;S.picked=new Set();render();});else enter();});
+  // 写真を長押しすると選択を始める
+  $$("[data-photo]").forEach(b=>{let tm=null,sx=0,sy=0;
+    b.addEventListener("pointerdown",e=>{sx=e.clientX;sy=e.clientY;tm=setTimeout(()=>{b._lp=1;S.lpUntil=Date.now()+1500;S.lpId=b.dataset.photo;if(navigator.vibrate)try{navigator.vibrate(15);}catch(_){}enter(b.dataset.photo);},450);});
+    const cancel=e=>{if(tm&&(!e||e.type!=="pointermove"||Math.hypot(e.clientX-sx,e.clientY-sy)>8)){clearTimeout(tm);tm=null;}};
+    b.addEventListener("pointermove",cancel);b.addEventListener("pointerup",()=>{clearTimeout(tm);tm=null;});b.addEventListener("pointercancel",cancel);
+    b.addEventListener("contextmenu",e=>e.preventDefault());});
+  // 選択中：タップで選ぶ／外す。指でなぞって続けて選ぶこともできる
+  $$("[data-pick-id]").forEach(b=>{
+    b.onclick=()=>{const x=b.dataset.pickId;if(Date.now()<(S.lpUntil||0)&&x===S.lpId){S.lpUntil=0;return;}const on=!S.picked.has(x);on?S.picked.add(x):S.picked.delete(x);b.classList.toggle("picked",on);updSelBar();};
+  });
+  const sc=$("[data-selcancel]");if(sc)sc.onclick=()=>keepY(()=>{S.selMode=null;S.picked=new Set();render();});
+  const sa=$("[data-selall]");if(sa)sa.onclick=()=>{$$("[data-pick-id]").forEach(b=>{S.picked.add(b.dataset.pickId);b.classList.add("picked");});updSelBar();};
+  const spl=$("[data-selplace]");if(spl)spl.onclick=()=>{const ids=[...S.picked];if(!ids.length)return;
+    const gpsN=ids.filter(x=>P_(x).gps).length;
+    pickPlace(`${ids.length}枚の場所を選ぶ`,gpsN?`位置情報がある${gpsN}枚はそのままにして、残りの写真に設定します。`:"選んだ写真に設定します。",manualOf(ids[0]),v=>{
+      const t=ids.filter(x=>!P_(x).gps);setManual(t,v);S.selMode=null;S.picked=new Set();toast(v?`${t.length}枚を${placeText(v)}に設定しました`:"設定を外しました");render();});};
+  const sd=$("[data-seldel]");if(sd)sd.onclick=()=>{const ids=[...S.picked];if(!ids.length)return;
+    confirmDlg(`${ids.length}枚を削除しますか？`,"このアプリから削除します（相手のアプリからも消えます）。スマホの写真アルバムにある元の写真は消えません。","削除する",()=>{
+      removePhotos(ids);S.selMode=null;S.picked=new Set();
+      const t=S.stack[S.stack.length-1];if(t&&t.type==="trip"&&!S.trips.some(x=>x.id===t.id)){delete META.trip[t.id];saveMeta();sync("tripDel",t.id);S.stack.pop();}
+      toast(`${ids.length}枚を削除しました`);render();});};
+}
+function updSelBar(){const n=S.picked.size,bar=$(".selbar");if(!bar)return;
+  bar.querySelector(".r1 span").textContent=n?n+"枚を選択中":"写真をタップして選択";
+  const d=bar.querySelector("[data-seldel]"),p=bar.querySelector("[data-selplace]");d.disabled=p.disabled=!n;d.textContent=n?n+"枚を削除":"削除";}
 /* 地図のズーム・移動・タップ */
 function bindMap(){
   const svg=$("#jpmap"),card=$("#mapcard");
@@ -1305,9 +1344,40 @@ function loadDemo(){
 
 /* 表示に失敗した画像は「?」ではなく枠を出す */
 document.addEventListener("error",e=>{const t=e.target;if(t&&t.tagName==="IMG"&&!t.dataset.failed){t.dataset.failed=1;DIAG.showFail++;DIAG.err=DIAG.err||("表示失敗:"+String(t.src).slice(0,30));const d=document.createElement("div");d.className="ph";d.textContent="表示できません";t.replaceWith(d);}},true);
+/* ================= 同じ写真（重複）の判定 =================
+   撮影日時と見た目（指紋）がほぼ同じなら同じ写真とみなす。
+   1/1000秒まで記録がある写真同士は、連写と区別するため時刻の一致を厳しく見る */
+function isDup(a,b){
+  if(!a||!b||a.id===b.id||a.dateGuess||b.dateGuess||!a.h||!b.h)return false;
+  const both=a.sub&&b.sub,dt=Math.abs(a.t-b.t);
+  if(both){if(dt>15)return false;}else if(Math.floor(a.t/1000)!==Math.floor(b.t/1000))return false;
+  if(a.lat!=null&&b.lat!=null&&km(a.lat,a.lon,b.lat,b.lon)>0.3)return false;
+  return hamming(a.h,b.h)<=(both?8:3);
+}
+function dupIndex(){const m=new Map();for(const p of S.photos.values()){if(p.dateGuess||!p.h)continue;const k=Math.floor(p.t/1000);(m.get(k)||m.set(k,[]).get(k)).push(p);}return m;}
+function findDup(p,idx){const k=Math.floor(p.t/1000);for(const d of [k-1,k,k+1])for(const q of (idx.get(d)||[]))if(isDup(p,q))return q;return null;}
+/* drop を keep にまとめる（コメント・表紙・代表写真・場所の設定を引き継いでから drop を消す） */
+function mergeDup(keep,drop){
+  const a=META.cmt[drop.id];if(a){const b=META.cmt[keep.id]||(META.cmt[keep.id]=[]);for(const c of a)if(!b.some(x=>x.at===c.at&&x.x===c.x))b.push(c);b.sort((x,y)=>x.at-y.at);}
+  for(const id in META.trip)if(META.trip[id].cover===drop.id)META.trip[id].cover=keep.id;
+  for(const k in META.prefCover)if(META.prefCover[k]===drop.id)META.prefCover[k]=keep.id;
+  if(META.manual[drop.id]&&!META.manual[keep.id])META.manual[keep.id]=META.manual[drop.id];
+  removePhotos([drop.id]);
+}
+/* すでに入っている写真の中の重複をまとめる（2人とも同じ結果になるよう、IDの小さい方を残す） */
+function dedupeAll(){
+  const idx=dupIndex();let n=0;const gone=new Set();
+  for(const list of idx.values()){
+    for(let i=0;i<list.length;i++)for(let j=i+1;j<list.length;j++){
+      const a=list[i],b=list[j];if(gone.has(a.id)||gone.has(b.id))continue;
+      if(isDup(a,b)){const [keep,drop]=a.id<b.id?[a,b]:[b,a];mergeDup(keep,drop);gone.add(drop.id);n++;}
+    }
+  }
+  return n;
+}
 /* ================= クラウド同期への橋渡し（同期が設定されていなければ何もしない） ================= */
 function sync(name,...a){try{if(window.SYNC&&window.SYNC[name])return window.SYNC[name](...a);}catch(e){}}
-const recOf=p=>({id:p.id,added:p.added,fromPartner:!!p.fromPartner,fromRemote:!!p.fromRemote,up:!!p.up,name:p.name,t:p.t,dateGuess:p.dateGuess,lat:p.lat,lon:p.lon,thumbU:p.thumb,h:p.h,sh:p.sh,col:p.col,by:p.by||""});
+const recOf=p=>({id:p.id,added:p.added,sub:!!p.sub,fromPartner:!!p.fromPartner,fromRemote:!!p.fromRemote,up:!!p.up,name:p.name,t:p.t,dateGuess:p.dateGuess,lat:p.lat,lon:p.lon,thumbU:p.thumb,h:p.h,sh:p.sh,col:p.col,by:p.by||""});
 /* ================= ふたりで共有（ファイルで受け渡し） ================= */
 const newCount=()=>[...S.photos.values()].filter(p=>!p.id.startsWith("demo-")&&(p.added||0)>(META.lastExport||0)&&!p.fromPartner).length;
 function setOv(text,sub,ratio){const o=$("#ov");o.classList.remove("hidden");o.querySelector(".r").textContent=text;$("#ovSub").textContent=sub||"";$("#ovBar").style.width=((ratio||0)*100)+"%";}
@@ -1450,7 +1520,9 @@ document.addEventListener("drop",e=>{e.preventDefault();$("#drop")?.classList.re
     S.trips.forEach(sortTrip);autoMerge();sortTrips();saveTrips();
     render();
     const todo=recs.filter(r=>!r.h&&r.thumbU);
-    if(todo.length){(async()=>{for(const r of todo){const an=await analyze(r.thumbU);if(!an)continue;Object.assign(r,an);dbPut("photos",r);const p=P_(r.id);if(p)Object.assign(p,an);}if(!S.viewer)render();})();}
+    const runDedupe=()=>{const n=dedupeAll();if(n){toast(`同じ写真が重複していたので、${n}枚をまとめました`);if(!S.viewer)render();}};
+    if(todo.length){(async()=>{for(const r of todo){const an=await analyze(r.thumbU);if(!an)continue;Object.assign(r,an);dbPut("photos",r);const p=P_(r.id);if(p)Object.assign(p,an);}runDedupe();if(!S.viewer)render();})();}
+    else runDedupe();
   }else if(!S.trips.length){S.tab="add";render();}
 })();
 </script>
@@ -1553,6 +1625,10 @@ async function boot(){
       });
       setCur("p",maxU);
       if(dels.length)removePhotos(dels,true);
+      if(news.length){
+        const idx=new Map();for(const q of S.photos.values()){if(q.dateGuess||!q.h||news.includes(q))continue;const k=Math.floor(q.t/1000);(idx.get(k)||idx.set(k,[]).get(k)).push(q);}
+        for(let i=news.length-1;i>=0;i--){const p=news[i],q=findDup(p,idx);if(q){const [keep,drop]=p.id<q.id?[p,q]:[q,p];if(drop===p)news.splice(i,1);mergeDup(keep,drop);if(keep===p)idx.get(Math.floor(p.t/1000))?.push(p);}}
+      }
       if(news.length){addToTrips(news);news.forEach(p=>thumbQ.push(p.id));pumpThumbs();
         if(!snap.metadata.fromCache)toast(`${[...who].join("・")||"相手"}が写真を${news.length}枚追加しました`);}
       if(news.length||dels.length)softRender();
