@@ -153,6 +153,8 @@ textarea:focus,input:focus{outline:2px solid #cfe0b8;border-color:transparent}
 .selbar .r2 .sbtn{flex:1;padding:10px 0;font-size:13px}
 .selbtn{margin-left:auto;flex:none}
 .grid button,.grid img{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.grid [data-pick-id]{touch-action:pan-y}
+.grid [data-pick-id] img{pointer-events:none}
 .selbar .sbtn{background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.25)}
 .selbar .delbtn{background:#c4553a;border-color:#c4553a}
 .selbar .delbtn:disabled{opacity:.4}
@@ -1071,7 +1073,7 @@ const selKey=()=>{const t=S.stack[S.stack.length-1];if(!t)return null;return t.t
 const inSel=()=>S.selMode&&S.selMode===selKey();
 function selBtn(){return `<button class="sbtn selbtn" data-seltoggle>${inSel()?"完了":"選択"}</button>`;}
 function selBar(){if(!inSel())return "";const n=S.picked.size;
-  return `<div class="selbar"><div class="r1"><span>${n?n+"枚を選択中":"写真をタップして選択"}</span><button class="sbtn" data-selall>すべて選択</button><button class="sbtn" data-selcancel>やめる</button></div>
+  return `<div class="selbar"><div class="r1"><span>${n?n+"枚を選択中":"タップ、または指でなぞって選択"}</span><button class="sbtn" data-selall>すべて選択</button><button class="sbtn" data-selcancel>やめる</button></div>
   <div class="r2"><button class="sbtn" data-selplace ${n?"":"disabled"}>場所を設定</button><button class="sbtn delbtn" data-seldel ${n?"":"disabled"}>${n?n+"枚を削除":"削除"}</button></div></div>`;}
 const pickTile=p=>`<button data-pick-id="${esc(p.id)}" class="${S.picked.has(p.id)?"picked":""}">${img(p)}<span class="chk"></span></button>`;
 /* --- 同期の状態 --- */
@@ -1196,7 +1198,7 @@ function bindSelect(){
     b.addEventListener("contextmenu",e=>e.preventDefault());});
   // 選択中：タップで選ぶ／外す。指でなぞって続けて選ぶこともできる
   $$("[data-pick-id]").forEach(b=>{
-    b.onclick=()=>{const x=b.dataset.pickId;if(Date.now()<(S.lpUntil||0)&&x===S.lpId){S.lpUntil=0;return;}const on=!S.picked.has(x);on?S.picked.add(x):S.picked.delete(x);b.classList.toggle("picked",on);updSelBar();};
+    b.onclick=()=>{const x=b.dataset.pickId;if(Date.now()-(S.dragEnd||0)<250)return;if(Date.now()<(S.lpUntil||0)&&x===S.lpId){S.lpUntil=0;return;}const on=!S.picked.has(x);on?S.picked.add(x):S.picked.delete(x);b.classList.toggle("picked",on);updSelBar();};
   });
   const sc=$("[data-selcancel]");if(sc)sc.onclick=()=>keepY(()=>{S.selMode=null;S.picked=new Set();render();});
   const sa=$("[data-selall]");if(sa)sa.onclick=()=>{$$("[data-pick-id]").forEach(b=>{S.picked.add(b.dataset.pickId);b.classList.add("picked");});updSelBar();};
@@ -1210,8 +1212,39 @@ function bindSelect(){
       const t=S.stack[S.stack.length-1];if(t&&t.type==="trip"&&!S.trips.some(x=>x.id===t.id)){delete META.trip[t.id];saveMeta();sync("tripDel",t.id);S.stack.pop();}
       toast(`${ids.length}枚を削除しました`);render();});};
 }
+/* 指でなぞってまとめて選ぶ（「写真」アプリと同じく、横になぞって始め、そのまま上下に動かすと範囲で選べる） */
+let SD=null,autoT=null;
+const tileAt=(x,y)=>{const el=document.elementFromPoint(x,y);return el&&el.closest?el.closest("[data-pick-id]"):null;};
+function sdApply(){
+  if(!SD||!SD.cur)return;const i0=SD.tiles.indexOf(SD.start),i1=SD.tiles.indexOf(SD.cur);if(i0<0||i1<0)return;
+  const lo=Math.min(i0,i1),hi=Math.max(i0,i1);
+  SD.tiles.forEach((t,i)=>{const x=t.dataset.pickId,want=(i>=lo&&i<=hi)?SD.on:SD.orig.get(x);
+    if(want)S.picked.add(x);else S.picked.delete(x);t.classList.toggle("picked",!!want);});
+  updSelBar();
+}
+function sdAuto(){
+  clearInterval(autoT);autoT=null;if(!SD||!SD.active)return;
+  const y=SD.lastY,H=window.innerHeight,edgeB=H-170,edgeT=90;
+  if(y>edgeB||y<edgeT){autoT=setInterval(()=>{if(!SD||!SD.active){clearInterval(autoT);return;}
+    window.scrollBy(0,(SD.lastY>edgeB?1:-1)*12);const t=tileAt(SD.lastX,SD.lastY);if(t&&t!==SD.cur){SD.cur=t;sdApply();}},16);}
+}
+document.addEventListener("pointerdown",e=>{
+  if(!inSel())return;const t=e.target.closest&&e.target.closest("[data-pick-id]");if(!t)return;
+  const tiles=$$("[data-pick-id]");const orig=new Map(tiles.map(x=>[x.dataset.pickId,S.picked.has(x.dataset.pickId)]));
+  SD={x:e.clientX,y:e.clientY,start:t,cur:null,on:!S.picked.has(t.dataset.pickId),active:false,tiles,orig,lastX:e.clientX,lastY:e.clientY};
+},true);
+document.addEventListener("pointermove",e=>{
+  if(!SD)return;const dx=e.clientX-SD.x,dy=e.clientY-SD.y;SD.lastX=e.clientX;SD.lastY=e.clientY;
+  if(!SD.active){
+    if(Math.abs(dx)>10&&Math.abs(dx)>=Math.abs(dy)){SD.active=true;SD.cur=SD.start;sdApply();}
+    else if(Math.abs(dy)>10){SD=null;return;} else return;
+  }
+  e.preventDefault();const t=tileAt(e.clientX,e.clientY);if(t&&t!==SD.cur){SD.cur=t;sdApply();}sdAuto();
+},{passive:false});
+const sdEnd=()=>{if(SD&&SD.active)S.dragEnd=Date.now();SD=null;clearInterval(autoT);autoT=null;};
+document.addEventListener("pointerup",sdEnd,true);document.addEventListener("pointercancel",sdEnd,true);
 function updSelBar(){const n=S.picked.size,bar=$(".selbar");if(!bar)return;
-  bar.querySelector(".r1 span").textContent=n?n+"枚を選択中":"写真をタップして選択";
+  bar.querySelector(".r1 span").textContent=n?n+"枚を選択中":"タップ、または指でなぞって選択";
   const d=bar.querySelector("[data-seldel]"),p=bar.querySelector("[data-selplace]");d.disabled=p.disabled=!n;d.textContent=n?n+"枚を削除":"削除";}
 /* 地図のズーム・移動・タップ */
 function bindMap(){
