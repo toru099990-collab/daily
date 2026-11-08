@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ふたりの旅アルバム：登録した2人のメールアドレスだけが読み書きできる
+    match /albums/{album}/{document=**} {
+      allow read, write: if request.auth != null
+        && request.auth.token.email in ['あなたのメールアドレス', '奥さんのメールアドレス'];
+    }
+  }
+}
