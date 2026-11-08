@@ -1,6 +1,6 @@
 // ふたりの旅アルバム：オフラインでも開けるようにアプリ本体を保存しておく
 // 更新したときは VERSION を変えると、新しい版に切り替わります
-const VERSION="v12";
+const VERSION="v13b";
 const CACHE="tabi-album-"+VERSION;
 const FILES=["./","./index.html","./manifest.webmanifest","./icon-192.png","./icon-512.png","./apple-touch-icon.png"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting()));});
@@ -10,7 +10,8 @@ self.addEventListener("fetch",e=>{
   const url=new URL(req.url);
   // アプリ本体：まずネットから最新を取り、つながらないときは保存したものを使う
   if(url.origin===location.origin){
-    e.respondWith(fetch(req).then(r=>{const cp=r.clone();caches.open(CACHE).then(c=>c.put(req,cp));return r;}).catch(()=>caches.match(req).then(r=>r||caches.match("./index.html"))));
+    // 更新がすぐ反映されるよう、ブラウザの一時保存を使わずにGitHubへ確認する
+    e.respondWith(fetch(req,{cache:"no-cache"}).then(r=>{const cp=r.clone();caches.open(CACHE).then(c=>c.put(req,cp));return r;}).catch(()=>caches.match(req).then(r=>r||caches.match("./index.html"))));
     return;
   }
   // 文字のフォント：一度読んだら保存しておく
